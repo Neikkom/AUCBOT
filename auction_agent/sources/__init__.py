@@ -139,3 +139,138 @@ def build_source(kind: str, path: str) -> LotSource:
     if kind == "iaa-csv":
         return CsvExportSource(path, "iaa", IAA_COLUMNS)
     raise ValueError(f"unknown source kind: {kind}")
+
+
+# ---------------------------------------------------------------------------
+# Automatic: any auction-data provider with a JSON HTTP API
+# ---------------------------------------------------------------------------
+
+def _dig(obj, path: str | None):
+    """Follow a dotted path ("data.items", "photos.0.url") through dicts/lists."""
+    if not path:
+        return obj
+    for part in path.split("."):
+        if obj is None:
+            return None
+        if isinstance(obj, list):
+            try:
+                obj = obj[int(part)]
+            except (ValueError, IndexError):
+                return None
+        else:
+            obj = obj.get(part) if isinstance(obj, dict) else None
+    return obj
+
+
+_NUMERIC = {"year", "odometer", "current_bid", "buy_now", "est_retail_value"}
+
+
+class HttpApiSource:
+    """Polls a provider's REST API and maps its JSON into `Lot`s.
+
+    Configured entirely from sources.yaml, so switching providers means editing
+    the field map, not the code:
+
+        - kind: api
+          name: copart                       # becomes Lot.source
+          url: https://provider.example/v1/lots?site=copart&updated_after={since}
+          method: GET                        # or POST with `body:`
+          headers: {Authorization: "Bearer ${AUCTION_API_KEY}"}
+          items_path: data                   # where the list of lots is in the response
+          next_path: links.next              # optional: URL of the next page
+          max_pages: 10
+          fields:                            # Lot field -> provider field (dotted path)
+            lot_id: lot_number
+            year: year
+            ...
+
+    `${ENV_VAR}` is expanded from the environment, so keys stay out of the file.
+    `{since}` is replaced with the time of the last successful poll (ISO 8601).
+    """
+
+    def __init__(self, cfg: dict, store=None):
+        self.cfg = cfg
+        self.name = cfg.get("name", "api")
+        self.store = store
+        self.fields: dict[str, str] = cfg.get("fields", {})
+        self.constants: dict = cfg.get("constants", {})   # fixed values, e.g. {source: copart}
+
+    def _since(self) -> str:
+        last = self.store.get_meta(f"since:{self.name}") if self.store else None
+        return last or self.cfg.get("initial_since", "1970-01-01T00:00:00Z")
+
+    def _request(self, url: str) -> dict | list:
+        import os
+        import urllib.request
+        headers = {k: os.path.expandvars(str(v)) for k, v in self.cfg.get("headers", {}).items()}
+        headers.setdefault("Accept", "application/json")
+        body = self.cfg.get("body")
+        data = None
+        if body is not None:
+            data = os.path.expandvars(json.dumps(body).replace("{since}", self._since())).encode()
+            headers.setdefault("Content-Type", "application/json")
+        req = urllib.request.Request(url, data=data, headers=headers, method=self.cfg.get("method", "GET"))
+        with urllib.request.urlopen(req, timeout=int(self.cfg.get("timeout", 30))) as r:
+            return json.loads(r.read())
+
+    def to_lot(self, item: dict) -> Lot:
+        data: dict = {"source": self.name, **self.constants}
+        for field, path in self.fields.items():
+            v = _dig(item, path)
+            if v in (None, ""):
+                continue
+            if field in _NUMERIC:
+                v = _num(str(v))
+                if v is None:
+                    continue
+                if field in ("year", "odometer"):
+                    v = int(v)
+            elif field == "auction_date" and isinstance(v, str):
+                v = _date(v) or v       # let pydantic parse ISO strings
+            elif field == "images" and isinstance(v, str):
+                v = [v]
+            elif field == "lot_id":
+                v = str(v)
+            data[field] = v
+        if not data.get("description"):
+            data["description"] = "; ".join(f"{k}: {v}" for k, v in item.items()
+                                            if isinstance(v, (str, int, float)) and v != "")[:4000]
+        return Lot.model_validate(data)
+
+    def fetch(self) -> Iterable[Lot]:
+        import os
+        from datetime import datetime, timezone
+        started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        url = os.path.expandvars(self.cfg["url"]).replace("{since}", self._since())
+        lots: list[Lot] = []
+        for _ in range(int(self.cfg.get("max_pages", 10))):
+            resp = self._request(url)
+            items = _dig(resp, self.cfg.get("items_path")) or []
+            for item in items:
+                try:
+                    lots.append(self.to_lot(item))
+                except Exception as e:
+                    print(f"[{self.name}] skipped an item: {e}")
+            url = _dig(resp, self.cfg.get("next_path")) if self.cfg.get("next_path") else None
+            if not url or not items:
+                break
+        if self.store:   # only advance the cursor after a fully successful poll
+            self.store.set_meta(f"since:{self.name}", started)
+        yield from lots
+
+
+def load_sources(path: str | Path, store=None) -> list[LotSource]:
+    """Build every source listed in a sources.yaml file."""
+    import os
+    import yaml
+    cfg = yaml.safe_load(Path(path).read_text()) or {}
+    out: list[LotSource] = []
+    for s in cfg.get("sources", []):
+        if s.get("enabled", True) is False:
+            continue
+        kind = s["kind"]
+        if kind == "api":
+            out.append(HttpApiSource(s, store))
+        else:
+            out.append(build_source(kind, os.path.expanduser(s["path"])))
+    return out

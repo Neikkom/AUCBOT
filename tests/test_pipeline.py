@@ -15,7 +15,7 @@ BOX = BuyBox(year_min=2016, max_miles=120000, conditions=["run and drive"],
 
 class Collect:
     def __init__(self): self.msgs = []
-    def send(self, subject, body): self.msgs.append(subject)
+    def send(self, subject, body, url=None, priority="default"): self.msgs.append(subject)
 
 
 def lot(**kw):
