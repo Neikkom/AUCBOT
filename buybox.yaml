@@ -1,0 +1,28 @@
+# Your buy box. Hard filters run first (free); the rules below them are
+# turned into yes/no questions about each lot by Claude.
+name: daily-drivers
+year_min: 2016
+max_miles: 120000
+conditions: ["run and drive", "run & drive"]
+title_types: ["clean", "salvage", "certificate"]
+excluded_damage: ["flood", "water", "burn", "fire", "biohazard"]
+require_keys: true
+locations: []                        # e.g. ["TX", "OK", "LA"]
+
+must_haves:
+  - Vehicle runs and drives
+  - Airbags not deployed
+  - Odometer reading is actual
+nice_to_haves:
+  - Damage is cosmetic or bolt-on panels only
+  - Low current bid compared with value
+deal_breakers:
+  - Frame or structural damage
+  - Engine or transmission problems
+
+# Price-cap assumptions
+target_profit: 2500
+transport_cost: 500
+misc_costs: 300
+max_budget: 15000
+auto_watch_score: 70
