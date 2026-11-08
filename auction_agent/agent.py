@@ -2,6 +2,8 @@
 alerts -> auction reminders -> bid plans."""
 from __future__ import annotations
 
+import json
+import os
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
@@ -48,10 +50,25 @@ class AuctionAgent:
     def ingest(self, sources: Iterable[LotSource]) -> list[Lot]:
         new: list[Lot] = []
         for src in sources:
-            for lot in src.fetch():
-                if self.store.upsert_lot(lot):
-                    new.append(lot)
+            name = getattr(src, "name", type(src).__name__)
+            try:
+                count = 0
+                for lot in src.fetch():
+                    count += 1
+                    if self.store.upsert_lot(lot):
+                        new.append(lot)
+                self.store.set_meta(f"source:{name}", json.dumps(
+                    {"ok": True, "at": datetime.now().isoformat(timespec="seconds"), "lots": count}))
+            except Exception as e:  # one broken feed shouldn't stop the cycle
+                print(f"[ingest] {name} failed: {e}")
+                self.store.set_meta(f"source:{name}", json.dumps(
+                    {"ok": False, "at": datetime.now().isoformat(timespec="seconds"), "error": str(e)[:300]}))
         return new
+
+    def link(self, lot: Lot) -> Optional[str]:
+        """Where a tap on a phone alert should go: the dashboard if configured, else the listing."""
+        base = os.getenv("DASHBOARD_URL")
+        return f"{base.rstrip('/')}/#lot={lot.key}" if base else lot.url
 
     # 2-4. screen one lot ----------------------------------------------------
     def screen(self, lot: Lot) -> Decision:
@@ -87,7 +104,8 @@ class AuctionAgent:
                 continue
             watched = d.evaluation.score >= self.box.auto_watch_score
             tag = "Added to watchlist" if watched else "Possible match"
-            self.notifier.send(f"[{self.box.name}] {tag}: {lot.title_line}", format_lot(lot, d))
+            self.notifier.send(f"{tag}: {lot.title_line} (score {d.evaluation.score})", format_lot(lot, d),
+                               url=self.link(lot), priority="high" if watched else "default")
             self.store.mark_alert(lot.key, "match")
 
     # 5. auction reminders ----------------------------------------------------
@@ -106,11 +124,14 @@ class AuctionAgent:
             cap = row["approved_amount"] or row["max_bid"] or 0
             status = row["bid_status"]
             action = ("Your approved bid cap is set." if status in ("approved", "placed")
-                      else "No bid cap approved yet. Run `approve-bid` or you'll need to bid live.")
+                      else "No bid cap approved yet. Approve one in the dashboard or you'll need to bid live.")
+            approved = status in ("approved", "placed")
+            prio = "default" if kind == "24h" else ("high" if approved else "urgent")
             self.notifier.send(
                 f"Auction in <{kind}: {lot.title_line}",
                 f"{lot.source.upper()} #{lot.lot_id} sells {lot.auction_date:%a %b %d %H:%M}.\n"
-                f"Cap: ${cap:,.0f} ({status}). {action}\n{lot.url or ''}")
+                f"Cap: ${cap:,.0f} ({status}). {action}\n{lot.url or ''}",
+                url=self.link(lot), priority=prio)
             for k, _ in due:  # wider windows are now redundant
                 self.store.mark_alert(lot.key, f"remind-{k}")
             sent += 1
@@ -122,4 +143,7 @@ class AuctionAgent:
         matches = self.screen_new(new)
         self.alert_matches(matches)
         reminders = self.remind()
-        return {"new_lots": len(new), "matches": len(matches), "reminders": reminders}
+        result = {"new_lots": len(new), "matches": len(matches), "reminders": reminders,
+                  "at": datetime.now().isoformat(timespec="seconds")}
+        self.store.set_meta("last_cycle", json.dumps(result))
+        return result

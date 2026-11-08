@@ -26,7 +26,7 @@ class BidPlacer(Protocol):
 class ManualBidPlacer:
     def place(self, lot_key: str, url: str | None, amount: float) -> str:
         return (f"Enter a pre-bid / max bid of ${amount:,.0f} for {lot_key}"
-                f"{' at ' + url if url else ''}, then run `mark-placed {lot_key}`.")
+                f"{' at ' + url if url else ''}, then mark it as entered (dashboard button or `mark-placed {lot_key}`).")
 
 
 def approve(store: Store, lot_key: str, amount: float | None, placer: BidPlacer) -> str:

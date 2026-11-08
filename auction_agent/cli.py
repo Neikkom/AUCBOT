@@ -1,7 +1,8 @@
 """Command line interface.
 
     python -m auction_agent run      --buybox buybox.yaml --source json:data/sample_lots.json
-    python -m auction_agent watch    --buybox buybox.yaml --source copart-csv:~/Downloads/salesdata.csv --every 30
+    python -m auction_agent watch    --buybox buybox.yaml --sources sources.yaml --every 30
+    python -m auction_agent serve    --buybox buybox.yaml --sources sources.yaml --every 15   # dashboard + poller
     python -m auction_agent watchlist
     python -m auction_agent show copart:12345678
     python -m auction_agent approve-bid copart:12345678 [--amount 6500]
@@ -21,7 +22,7 @@ from .bidding import ManualBidPlacer, approve
 from .evaluator import ClaudeEvaluator, HeuristicEvaluator
 from .models import BuyBox
 from .notify import from_env
-from .sources import build_source
+from .sources import build_source, load_sources
 from .store import Store
 
 
@@ -33,17 +34,17 @@ def load_buybox(path: str) -> BuyBox:
     return BuyBox.model_validate_json(text)
 
 
-def make_agent(args) -> AuctionAgent:
+def make_agent(args, store: Store) -> AuctionAgent:
     box = load_buybox(args.buybox) if getattr(args, "buybox", None) else BuyBox()
     use_llm = not getattr(args, "offline", False) and (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
     evaluator = ClaudeEvaluator(model=os.getenv("AGENT_MODEL", "claude-opus-5-5")) if use_llm else HeuristicEvaluator()
     if not use_llm:
         print("[agent] Using offline heuristic evaluator (set ANTHROPIC_API_KEY for Claude).")
-    return AuctionAgent(Store(args.db), evaluator, from_env(), box)
+    return AuctionAgent(store, evaluator, from_env(), box)
 
 
-def sources_from(args):
-    out = []
+def sources_from(args, store: Store):
+    out = list(load_sources(args.sources, store)) if getattr(args, "sources", None) else []
     for spec in args.source or []:
         kind, _, path = spec.partition(":")
         out.append(build_source(kind, os.path.expanduser(path)))
@@ -55,13 +56,18 @@ def main(argv=None):
     p.add_argument("--db", default="data/agent.db")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    for name in ("run", "watch"):
+    for name in ("run", "watch", "serve"):
         s = sub.add_parser(name)
         s.add_argument("--buybox", required=True)
+        s.add_argument("--sources", help="sources.yaml listing every feed (API, CSV, JSON)")
         s.add_argument("--source", action="append", help="kind:path, kind = json | copart-csv | iaa-csv")
         s.add_argument("--offline", action="store_true", help="skip Claude; use keyword heuristics")
-        if name == "watch":
-            s.add_argument("--every", type=int, default=30, help="minutes between polls")
+        if name != "run":
+            s.add_argument("--every", type=float, default=30 if name == "watch" else 15,
+                           help="minutes between polls")
+        if name == "serve":
+            s.add_argument("--host", default="0.0.0.0")
+            s.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
 
     sub.add_parser("watchlist")
     s = sub.add_parser("show"); s.add_argument("key")
@@ -80,11 +86,17 @@ def main(argv=None):
 
 def _dispatch(args, store: Store) -> None:
 
-    if args.cmd in ("run", "watch"):
-        agent = make_agent(args)
-        srcs = sources_from(args)
+    if args.cmd == "serve":
+        from .web import serve
+        agent = make_agent(args, store)
+        if not (args.sources or args.source):
+            raise ValueError("pass --sources sources.yaml (or --source kind:path)")
+        # Rebuilt every cycle, so edits to sources.yaml apply without a restart.
+        serve(agent, lambda: sources_from(args, store), args.every, args.host, args.port)
+    elif args.cmd in ("run", "watch"):
+        agent = make_agent(args, store)
         while True:
-            print(f"[agent] cycle: {json.dumps(agent.run_once(srcs))}")
+            print(f"[agent] cycle: {json.dumps(agent.run_once(sources_from(args, store)))}")
             if args.cmd == "run":
                 break
             time.sleep(args.every * 60)

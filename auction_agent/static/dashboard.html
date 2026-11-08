@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AUCBOT</title>
+<style>
+:root {
+  --bg: #f5f6f8; --card: #ffffff; --ink: #14171c; --muted: #646b76; --line: #e3e6eb;
+  --accent: #1f6feb; --accent-ink: #ffffff; --good: #18794e; --warn: #a35200; --bad: #c62828;
+  --good-bg: #e6f4ec; --warn-bg: #fdf0e1; --bad-bg: #fdeaea; --chip: #eef1f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216; --card: #171b21; --ink: #e8ebf0; --muted: #98a0ab; --line: #2a3038;
+    --accent: #4c8dff; --accent-ink: #0b0d10; --good: #4cc38a; --warn: #f0a04b; --bad: #ff6b6b;
+    --good-bg: #11291d; --warn-bg: #2d1f0f; --bad-bg: #2e1414; --chip: #222830;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1100px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.brand { font-weight: 700; letter-spacing: .02em; }
+.status { color: var(--muted); font-size: 13px; flex: 1; min-width: 160px; }
+nav { max-width: 1100px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; }
+nav button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+  padding: 8px 10px; font: inherit; cursor: pointer; }
+nav button.on { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 8px 12px;
+  font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn.ghost { background: var(--chip); color: var(--ink); }
+.btn.small { padding: 5px 9px; font-size: 13px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; cursor: pointer; }
+.card:hover { border-color: var(--accent); }
+.card.past { opacity: .55; }
+.row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.title { font-weight: 650; }
+.meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.score { font-weight: 700; font-size: 13px; border-radius: 999px; padding: 2px 9px; }
+.s-good { background: var(--good-bg); color: var(--good); }
+.s-warn { background: var(--warn-bg); color: var(--warn); }
+.s-bad { background: var(--bad-bg); color: var(--bad); }
+.pill { font-size: 12px; border-radius: 999px; padding: 2px 8px; background: var(--chip); color: var(--muted); }
+.pill.approved, .pill.placed { background: var(--good-bg); color: var(--good); }
+.cap { font-size: 20px; font-weight: 700; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.cap small { font-size: 12px; color: var(--muted); font-weight: 500; }
+.soon { color: var(--bad); font-weight: 600; }
+.empty { color: var(--muted); text-align: center; padding: 40px 0; }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+.panel h3 { margin: 0 0 8px; font-size: 15px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+td { padding: 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { color: var(--muted); padding-right: 12px; white-space: nowrap; }
+/* drawer */
+.shade { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 10; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--bg);
+  z-index: 11; overflow-y: auto; transform: translateX(100%); transition: transform .2s ease; }
+.open .shade { display: block; } .open .drawer { transform: none; }
+.drawer .head { position: sticky; top: 0; background: var(--card); border-bottom: 1px solid var(--line);
+  padding: 12px 16px; display: flex; gap: 8px; align-items: center; }
+.drawer .body { padding: 16px; }
+.qa { list-style: none; padding: 0; margin: 0; }
+.qa li { padding: 8px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 26px 1fr; gap: 4px; }
+.qa .mark { font-weight: 700; }
+.qa .yes { color: var(--good); } .qa .no { color: var(--bad); } .qa .unknown { color: var(--muted); }
+.qa .ev { color: var(--muted); font-size: 13px; grid-column: 2; }
+.kind { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.risks li { color: var(--warn); }
+.bidbox { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.bidbox input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); width: 140px; }
+.note { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-top: 10px; }
+.ok { background: var(--good-bg); color: var(--good); }
+.imgs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px; }
+.imgs img { height: 120px; border-radius: 8px; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+  padding: 10px 14px; border-radius: 8px; font-size: 14px; z-index: 20; display: none; max-width: calc(100% - 32px); }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="brand">AUCBOT</span>
+    <span class="status" id="status">Loading…</span>
+    <button class="btn small" id="runBtn">Check now</button>
+  </div>
+  <nav>
+    <button data-tab="watch" class="on">Watchlist</button>
+    <button data-tab="matches">Matches</button>
+    <button data-tab="setup">Setup</button>
+  </nav>
+</header>
+<main id="main"></main>
+
+<div id="drawerWrap">
+  <div class="shade" id="shade"></div>
+  <aside class="drawer" id="drawer"></aside>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const money = (n) => n == null ? "—" : "$" + Math.round(n).toLocaleString();
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let tab = "watch", data = { watch: [], matches: [], state: null };
+
+function token() { try { return localStorage.getItem("aucbot_token") || ""; } catch { return ""; } }
+async function api(path, body) {
+  const opt = { headers: { "x-token": token() } };
+  if (body !== undefined) { opt.method = "POST"; opt.headers["content-type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  if (r.status === 401) {
+    const t = prompt("Dashboard password (DASHBOARD_TOKEN):");
+    if (t) { try { localStorage.setItem("aucbot_token", t); } catch {} return api(path, body); }
+    throw new Error("unauthorized");
+  }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 4000); }
+
+function scoreClass(s) { return s >= 70 ? "s-good" : s >= 40 ? "s-warn" : "s-bad"; }
+function until(iso) {
+  if (!iso) return { text: "Date TBD", soon: false };
+  const ms = new Date(iso) - new Date();
+  if (ms < 0) return { text: "Sold / ended", soon: false };
+  const h = Math.floor(ms / 3.6e6), m = Math.floor(ms % 3.6e6 / 6e4);
+  const d = Math.floor(h / 24);
+  return { text: d >= 1 ? `in ${d}d ${h % 24}h` : `in ${h}h ${m}m`, soon: ms < 2 * 3.6e6 };
+}
+function lotLine(l) {
+  return [l.odometer != null ? l.odometer.toLocaleString() + " mi" : null, l.primary_damage, l.title_type, l.condition, l.location]
+    .filter(Boolean).map(esc).join(" · ");
+}
+
+function card(item, mode) {
+  const l = item.lot || {}, d = item.decision || {}, ev = d.evaluation || {};
+  const w = item.watch, u = until(l.auction_date);
+  const cap = w ? (w.approved_amount || w.max_bid) : d.max_bid;
+  const status = w ? `<span class="pill ${esc(w.bid_status)}">${esc(w.bid_status)}</span>` :
+                 item.watched ? `<span class="pill">watching</span>` : "";
+  const past = l.auction_date && new Date(l.auction_date) < new Date();
+  return `<div class="card${past ? " past" : ""}" data-key="${esc(item.key)}">
+    <div class="row"><span class="title">${esc(item.title)}</span>
+      ${ev.score != null ? `<span class="score ${scoreClass(ev.score)}">${ev.score}</span>` : ""}</div>
+    <div class="meta">${esc((l.source || "").toUpperCase())} #${esc(l.lot_id)} · <span class="${u.soon ? "soon" : ""}">${u.text}</span></div>
+    <div class="meta">${lotLine(l)}</div>
+    <div class="row"><div class="cap">${money(cap)} <small>${w && w.approved_amount ? "approved cap" : "suggested cap"}</small></div>${status}</div>
+  </div>`;
+}
+
+function render() {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  const m = $("#main");
+  if (tab === "watch") {
+    const ended = (i) => i.lot?.auction_date && new Date(i.lot.auction_date) < new Date();
+    const sortKey = (i) => (ended(i) ? "1" : "0") + (i.lot?.auction_date || "9");
+    const list = [...data.watch].sort((a, b) => sortKey(a) < sortKey(b) ? -1 : 1);
+    m.innerHTML = list.length ? `<div class="grid">${list.map(i => card(i)).join("")}</div>`
+      : `<div class="empty">Nothing on the watchlist yet. Good matches are added automatically, or add them from Matches.</div>`;
+  } else if (tab === "matches") {
+    m.innerHTML = data.matches.length ? `<div class="grid">${data.matches.map(i => card(i)).join("")}</div>`
+      : `<div class="empty">No lots have passed your buy box yet.</div>`;
+  } else {
+    m.innerHTML = setupView();
+    $("#testAlert")?.addEventListener("click", async () => {
+      try { const r = await api("/api/test-alert", {}); toast("Test sent via: " + r.channels.join(", ")); } catch (e) { toast(e.message); }
+    });
+  }
+  m.querySelectorAll(".card").forEach(c => c.addEventListener("click", () => openLot(c.dataset.key)));
+}
+
+function setupView() {
+  const s = data.state; if (!s) return "";
+  const b = s.buybox;
+  const src = Object.entries(s.sources).map(([k, v]) =>
+    `<tr><td>${esc(k)}</td><td>${v.ok ? `✔ ${v.lots} lots` : `✘ ${esc(v.error)}`} <span class="meta">${esc(v.at)}</span></td></tr>`).join("")
+    || `<tr><td colspan="2">No sources have run yet.</td></tr>`;
+  const phone = s.channels.some(c => c === "Ntfy" || c === "Telegram");
+  return `
+  <div class="panel"><h3>Phone alerts</h3>
+    <p class="meta">Active channels: <b>${s.channels.map(esc).join(", ")}</b></p>
+    ${phone ? "" : `<div class="note">No phone channel yet. Install the free <b>ntfy</b> app, subscribe to a hard-to-guess topic name, then restart with <code>NTFY_TOPIC=that-name</code>. Telegram works too (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID).</div>`}
+    <p><button class="btn ghost" id="testAlert">Send test alert</button></p></div>
+  <div class="panel"><h3>Sources</h3><table>${src}</table>
+    <p class="meta">Polling: ${s.next_run ? "next check " + esc(s.next_run.replace("T", " ")) : "—"} · ${s.lots_seen} lots seen · evaluator: ${esc(s.evaluator)}</p></div>
+  <div class="panel"><h3>Buy box: ${esc(b.name)}</h3><table>
+    <tr><td>Year</td><td>${b.year_min ?? "any"}${b.year_max ? "–" + b.year_max : "+"}</td></tr>
+    <tr><td>Max miles</td><td>${b.max_miles ? b.max_miles.toLocaleString() : "any"}</td></tr>
+    <tr><td>Condition</td><td>${esc(b.conditions.join(", ") || "any")}</td></tr>
+    <tr><td>Titles</td><td>${esc(b.title_types.join(", ") || "any")}</td></tr>
+    <tr><td>Excluded damage</td><td>${esc(b.excluded_damage.join(", ") || "none")}</td></tr>
+    <tr><td>Must have</td><td>${b.must_haves.map(esc).join("<br>") || "—"}</td></tr>
+    <tr><td>Deal breakers</td><td>${b.deal_breakers.map(esc).join("<br>") || "—"}</td></tr>
+    <tr><td>Target profit</td><td>${money(b.target_profit)} · budget ${money(b.max_budget)}</td></tr>
+    <tr><td>Auto-watch at</td><td>score ≥ ${b.auto_watch_score}</td></tr>
+  </table><p class="meta">Edit buybox.yaml and restart to change these.</p></div>`;
+}
+
+async function openLot(key) {
+  location.hash = "lot=" + encodeURIComponent(key);
+  let item; try { item = await api("/api/lot?key=" + encodeURIComponent(key)); } catch (e) { toast(e.message); return; }
+  const l = item.lot, d = item.decision || {}, ev = d.evaluation, w = item.watch, u = until(l.auction_date);
+  const marks = { yes: "✔", no: "✘", unknown: "?" };
+  const bd = d.max_bid_breakdown || {};
+  const cap = w ? (w.approved_amount || w.max_bid) : d.max_bid;
+  $("#drawer").innerHTML = `
+    <div class="head"><button class="btn ghost small" id="closeBtn">✕</button>
+      <b style="flex:1">${esc(item.title)}</b>
+      ${l.url ? `<a class="btn small ghost" href="${esc(l.url)}" target="_blank" rel="noopener">Open listing</a>` : ""}</div>
+    <div class="body">
+      ${l.images?.length ? `<div class="imgs">${l.images.slice(0, 8).map(s => `<img src="${esc(s)}" alt="">`).join("")}</div>` : ""}
+      <div class="panel">
+        <div class="row"><span class="meta">${esc(l.source.toUpperCase())} #${esc(l.lot_id)} · <span class="${u.soon ? "soon" : ""}">${u.text}</span></span>
+          ${ev ? `<span class="score ${scoreClass(ev.score)}">${ev.score}/100</span>` : ""}</div>
+        <div class="meta">${lotLine(l)}</div>
+        ${l.auction_date ? `<div class="meta">Sale: ${new Date(l.auction_date).toLocaleString()}</div>` : ""}
+        ${ev ? `<p>${esc(ev.summary)}</p>` : ""}
+      </div>
+      <div class="panel"><h3>Bid cap</h3>
+        <div class="cap">${money(cap)} <small>${w?.approved_amount ? "approved" : "suggested"}</small></div>
+        ${w ? `<p class="bidbox">
+            <input id="amt" type="number" step="25" min="0" value="${Math.round(cap || 0)}" inputmode="numeric">
+            <button class="btn" id="approveBtn">Approve cap</button>
+            ${w.bid_status === "approved" ? `<button class="btn ghost" id="placedBtn">I entered it</button>` : ""}
+            <span class="pill ${esc(w.bid_status)}">${esc(w.bid_status)}</span></p>
+            <div id="bidMsg"></div>
+            <p><button class="btn ghost small" id="unwatchBtn">Remove from watchlist</button></p>`
+          : `<p><button class="btn" id="watchBtn">Add to watchlist</button></p>`}
+        ${bd.est_retail_value ? `<table>
+          <tr><td>Retail value (repaired)</td><td>${money(bd.est_retail_value)}</td></tr>
+          <tr><td>− Repairs (high est.)</td><td>${money(bd.repair_high)}</td></tr>
+          <tr><td>− Transport</td><td>${money(bd.transport)}</td></tr>
+          <tr><td>− Misc</td><td>${money(bd.misc)}</td></tr>
+          <tr><td>− Target profit</td><td>${money(bd.target_profit)}</td></tr>
+          <tr><td>− Buyer fees at cap</td><td>${money(bd.buyer_fees_at_cap)}</td></tr>
+          <tr><td><b>Max bid</b></td><td><b>${money(bd.max_bid)}</b></td></tr></table>` : ""}
+      </div>
+      ${ev ? `<div class="panel"><h3>Buy-box check</h3><ul class="qa">${ev.answers.map(a => `
+          <li><span class="mark ${a.answer}">${marks[a.answer]}</span><span><span class="kind">${a.kind.replace(/_/g, " ")}</span><br>${esc(a.question)}</span>
+          <span class="ev">${esc(a.evidence)}</span></li>`).join("")}</ul></div>
+        ${ev.risk_flags.length ? `<div class="panel"><h3>Risks to check</h3><ul class="risks">${ev.risk_flags.map(r => `<li>${esc(r)}</li>`).join("")}</ul></div>` : ""}
+        <div class="panel"><h3>Estimates</h3><table>
+          <tr><td>Retail value</td><td>${money(ev.est_retail_value)}</td></tr>
+          <tr><td>Repairs</td><td>${money(ev.repair_low)} – ${money(ev.repair_high)}</td></tr>
+          <tr><td>Current bid</td><td>${money(l.current_bid)}</td></tr>
+          <tr><td>Buy now</td><td>${money(l.buy_now)}</td></tr></table></div>` : ""}
+      ${l.description ? `<div class="panel"><h3>Listing notes</h3><p class="meta">${esc(l.description)}</p></div>` : ""}
+    </div>`;
+  document.body.classList.add("open");
+  $("#closeBtn").onclick = closeLot;
+  const act = async (path, body, msg) => { try { const r = await api(path, body); if (msg) toast(msg); await refresh(); openLot(key); return r; } catch (e) { toast(e.message); } };
+  $("#watchBtn") && ($("#watchBtn").onclick = () => act("/api/watch", { key }, "Added to watchlist"));
+  $("#unwatchBtn") && ($("#unwatchBtn").onclick = async () => { await act("/api/unwatch", { key }, "Removed"); closeLot(); });
+  $("#placedBtn") && ($("#placedBtn").onclick = () => act("/api/placed", { key }, "Marked as placed"));
+  $("#approveBtn") && ($("#approveBtn").onclick = async () => {
+    const amount = parseFloat($("#amt").value);
+    if (cap && amount > cap && !confirm(`${money(amount)} is above the suggested cap of ${money(cap)}. Approve anyway?`)) return;
+    try {
+      const r = await api("/api/bid", { key, amount });
+      await refresh(); await openLot(key);
+      $("#bidMsg").innerHTML = `<div class="note ok">${esc(r.message)}</div>`;
+    } catch (e) { toast(e.message); }
+  });
+}
+function closeLot() { document.body.classList.remove("open"); history.replaceState(null, "", location.pathname); }
+$("#shade").onclick = closeLot;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeLot(); });
+
+async function refresh() {
+  try {
+    const [state, watch, matches] = await Promise.all([api("/api/state"), api("/api/watchlist"), api("/api/matches")]);
+    data = { state, watch, matches };
+    const lc = state.last_cycle;
+    $("#status").textContent = state.running ? "Checking for new lots…" :
+      lc ? `Last check ${new Date(lc.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · ${lc.new_lots} new · ${state.watching} watching` : "Waiting for first check…";
+    if (!document.body.classList.contains("open")) render();
+  } catch (e) { $("#status").textContent = e.message; }
+}
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => { tab = b.dataset.tab; render(); }));
+$("#runBtn").onclick = async () => { try { await api("/api/run", {}); toast("Checking for new lots…"); setTimeout(refresh, 3000); } catch (e) { toast(e.message); } };
+
+refresh().then(() => { const m = location.hash.match(/lot=([^&]+)/); if (m) openLot(decodeURIComponent(m[1])); });
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

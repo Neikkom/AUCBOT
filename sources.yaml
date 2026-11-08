@@ -1,0 +1,58 @@
+# Where lots come from. The agent polls every source on each cycle.
+#
+# AUTOMATIC: sign up with an auction-data provider that offers a JSON API
+# for Copart / IAA lots and is allowed to resell that data. Check their terms.
+# Put your key in an environment variable (never in this file), then copy
+# the "api" block below and fix the URL and field names to match their docs.
+
+sources:
+  # --- Example API source (disabled until you fill it in) -----------------
+  - kind: api
+    enabled: false
+    name: copart
+    url: https://YOUR-PROVIDER.example.com/v1/lots?auction=copart&updated_after={since}&year_from=2016
+    headers:
+      Authorization: "Bearer ${AUCTION_API_KEY}"
+    items_path: data            # path to the list of lots in the JSON response
+    next_path: next             # path to the next-page URL (remove if none)
+    max_pages: 10
+    initial_since: "2026-11-01T00:00:00Z"
+    fields:                     # our field: provider's field (dotted paths ok)
+      lot_id: lot_number
+      url: link
+      year: year
+      make: make
+      model: model
+      trim: trim
+      vin: vin
+      odometer: odometer.value
+      odometer_status: odometer.status
+      primary_damage: damage.primary
+      secondary_damage: damage.secondary
+      title_type: title
+      condition: highlights
+      has_keys: keys
+      location: location.name
+      zip_code: location.zip
+      auction_date: sale_date
+      current_bid: current_bid
+      buy_now: buy_now_price
+      est_retail_value: retail_value
+      description: notes
+      images: images
+
+  # --- Same thing for IAA, if your provider covers it ------------------------
+  # - kind: api
+  #   name: iaa
+  #   url: https://YOUR-PROVIDER.example.com/v1/lots?auction=iaai&updated_after={since}
+  #   ...
+
+  # --- Manual exports still work alongside ---------------------------------
+  # - kind: copart-csv
+  #   path: ~/Downloads/salesdata.csv
+  # - kind: iaa-csv
+  #   path: ~/Downloads/iaa_export.csv
+
+  # --- Demo data ---------------------------------------------------------
+  - kind: json
+    path: data/sample_lots.json
